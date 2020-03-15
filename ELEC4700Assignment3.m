@@ -20,26 +20,26 @@ meshSize = 1; %nm%
 
 % -------- Question 1 -------- %
 
-% [avgVelocitiesX, time] = MonteCarloElectronSim(false, false, true, 'Uniform', 40*boxWidthScaleFactor, 0, 1/5, 2/5);
-% 
+[avgVelocitiesX, time] = MonteCarloElectronSim(false, false, true, 'Uniform', 40*boxWidthScaleFactor, 0, 1/5, 2/5);
+
 chargesPerUnitArea = 1e19; % electrons/m^2;
-% Jx = (C.q)*chargesPerUnitArea*avgVelocitiesX; % current per m
-% 
-% Ix = Jx*(100*boxLengthScaleFactor); % current in the x-direction over time
-% 
-% figure;
-% plot(time, Ix, 'r');
-% grid on;
-% title('Electron Drift Current vs. Time');
-% xlabel('Time (s)');
-% ylabel('Electron Drift Current (A)');
+Jx = (C.q)*chargesPerUnitArea*avgVelocitiesX; % current per m
+
+Ix = Jx*(100*boxLengthScaleFactor); % current in the x-direction over time
+
+figure;
+plot(time, Ix, 'r');
+grid on;
+title('Electron Drift Current vs. Time');
+xlabel('Time (s)');
+ylabel('Electron Drift Current (A)');
 
 % -------- Question 2 -------- %
 
 Vapplied = 1; %Volts%
 
-% [dummy1, dummy2, Efield_x, Efield_y] = FiniteDifferenceSolver(1, 0.01, true, 80, 0, 1/5, 2/5);
-% [dummy1, dummy2] = MonteCarloElectronSim(true, false, true, "Custom", 40*boxWidthScaleFactor, 0, 1/5, 2/5); 
+[dummy1, dummy2, Efield_x, Efield_y] = FiniteDifferenceSolver(1, 0.01, true, 80, 0, 1/5, 2/5);
+[dummy1, dummy2] = MonteCarloElectronSim(true, false, true, "Custom", 40*boxWidthScaleFactor, 0, 1/5, 2/5); 
 
 % -------- Question 3 -------- %
 
@@ -67,6 +67,7 @@ end
 
 Jx = (C.q)*chargesPerUnitArea.*avgVelocityX;
 
+% average current density vs bottle-neck width plot
 figure;
 plot(bottleNeckSeparation, Jx, 'rx');
 grid on;
