@@ -1,0 +1,350 @@
+function [avgVelocityX, t_vec] = MonteCarloElectronSim(BottleNeck, DiffuseCollisions, ParticleScattering, FieldType)
+
+% -------- Declare globals and define constants/initial parameters -------- %
+
+global C;
+global numElectrons;
+global x_pos_init;
+global y_pos_init;
+global V_x_init;
+global V_y_init;
+global vx
+global vy;
+global x;
+global y;
+global boxWidthScaleFactor;
+global boxLengthScaleFactor;
+global maxTimeStep;
+global Vapplied;
+global nx;
+global ny;
+
+C.m_o = 9.10956e-31; %kg%
+C.m = 0.26*C.m_o; %kg%
+C.T = 300; %K%
+C.k_b = 1.38064852e-23; %m^2 kg s^-2 K^-1%
+C.q = 1.602e-19; %c%
+
+meanTime = 0.2e-12; %s%
+numElectrons = 1000;
+maxTimeStep = 1000;
+d = 100*boxWidthScaleFactor;
+
+% -------- Initialize positions and velocities of electrons -------- %
+
+if (BottleNeck)
+    initPositionAndVelocity("MB", "BottleNeck");
+else
+    initPositionAndVelocity("MB", "Uniform");
+end
+
+% -------- Set up more variables for computing electron trajectotries -------- %
+
+avgVelocity_init = sum(sqrt((V_x_init.^2)+(V_y_init.^2)))/numElectrons; %average of maxwell boltzmann distribution%
+dt = (1/500)*100*boxWidthScaleFactor/avgVelocity_init;
+
+dx = zeros(1, numElectrons);
+dy = zeros(1, numElectrons);
+dvx = zeros(1, numElectrons);
+dvy = zeros(1, numElectrons);
+vx = zeros(1, numElectrons);
+vy = zeros(1, numElectrons);
+x = zeros(1, numElectrons);
+y = zeros(1, numElectrons);
+
+vx = V_x_init;
+vy = V_y_init;
+x = x_pos_init;
+y = y_pos_init;
+T = zeros(1, maxTimeStep);
+t_vec = linspace(0, maxTimeStep*dt, maxTimeStep);
+
+% randomly choose 10 electrons to have their trajectories over the whole
+% simulation tracked
+numElectronsToTrack = 10;
+electronsToTrack = randi(numElectrons, 1, numElectronsToTrack);
+
+x_oldvals = zeros(maxTimeStep, numElectronsToTrack);
+y_oldvals = zeros(maxTimeStep, numElectronsToTrack);
+
+Pscat = 1 - exp(-dt/meanTime); %Calculate scattering probability%
+
+avgVelocity = zeros(1, maxTimeStep);
+avgVelocityX = zeros(1, maxTimeStep);
+
+% -------- Computation of particle acceleration based on applied electric field -------- %
+
+if (FieldType == "Uniform")
+    
+    Ex = Vapplied/d; %V/m%
+    Fx = (C.q)*Ex; %Magnitude of electric force - N% 
+    ax = ones(1, numElectrons)*(Fx/(C.m)); %accceleration felt by electrons - m/s^2%
+    ay = 0;
+    
+end
+
+figure;
+
+% -------- MAIN PROGRAM LOOP -------- %
+
+for t = 1:maxTimeStep
+    
+% -------- Capturing previous electron positions -------- %
+
+    x_previous = x;
+    y_previous = y;
+
+% -------- Update particle positions by solving Newton's equations (first order integration) -------- %
+    
+    if (FieldType == "Custom")
+        
+        [Fx, Fy] = computeLorentzForce(x_previous, y_previous);
+        ax = (Fx./(C.m))./(1e-9);
+        ay = (Fy./(C.m))./(1e-9);
+        
+    end
+    
+    dvx = ax*dt;
+    dvy = ay*dt;
+    
+    vx = vx + dvx;
+    vy = vy + dvy;
+
+    dx = (vx*dt) + ((ax*(dt^2))/2);
+    dy = (vy*dt) + ((ay*(dt^2))/2);
+    
+    x = x_previous + dx;
+    y = y_previous + dy;
+    
+    x_oldvals(t,:) = x_previous(electronsToTrack);
+    y_oldvals(t,:) = y_previous(electronsToTrack);
+
+% -------- Apply boundary conditions to applicable electrons -------- %
+    
+    toReflectY = find((y > 100*boxLengthScaleFactor) | (y < 0));
+ 
+    toShiftRight = find(x < 0);
+    toShiftLeft = find(x > 100*boxWidthScaleFactor);
+    
+    if ~isempty(toReflectY)
+        vy(toReflectY) = -vy(toReflectY);
+    end
+    
+    if ~isempty(toShiftRight)
+        x(toShiftRight) = 100*boxWidthScaleFactor; 
+    end
+    
+    if ~isempty(toShiftLeft)
+        x(toShiftLeft) = 0;
+       
+    end
+    
+    % reflection off of bottleneck region walls   
+    if (BottleNeck)
+  
+        for i = 1:numElectrons
+            
+            if (((x(i) >= 40*boxWidthScaleFactor) && (x(i) <= 60*boxWidthScaleFactor)) && ((y(i) >= 60*boxLengthScaleFactor)))
+                
+                if (x_previous(i) <= 40*boxWidthScaleFactor) && (y_previous(i) >= 60*boxLengthScaleFactor)
+                    
+                    if (DiffuseCollisions)
+                        [vx(i), vy(i)] = thermalize(1);
+                    else
+                        vx(i) = -vx(i);
+                    end
+                    
+                    x(i) = 40*boxWidthScaleFactor;  
+                    
+                elseif (x_previous(i) >= 60*boxWidthScaleFactor) && (y_previous(i) >= 60*boxLengthScaleFactor)
+                    
+                    if (DiffuseCollisions)
+                        [vx(i), vy(i)] = thermalize(1);
+                    else
+                        vx(i) = -vx(i);
+                    end
+                    
+                    x(i) = 60*boxWidthScaleFactor;
+                               
+                elseif (x_previous(i) > 40*boxWidthScaleFactor) && (x_previous(i) < 60*boxWidthScaleFactor) && (y_previous(i) >= 60*boxLengthScaleFactor)
+                    
+                    if (DiffuseCollisions)
+                        [vx(i), vy(i)] = thermalize(1);
+                    else
+                        vy(i) = -vy(i);
+                    end
+                    
+                    y(i) = 60*boxLengthScaleFactor;
+                
+                elseif (x_previous(i) > 40*boxWidthScaleFactor) && (x_previous(i) < 60*boxWidthScaleFactor) && (y_previous(i) < 60*boxLengthScaleFactor)
+                    
+                    if (DiffuseCollisions)
+                        [vx(i), vy(i)] = thermalize(1);
+                    else
+                        vy(i) = -vy(i);
+                    end
+                    
+                    y(i) = 60*boxLengthScaleFactor;
+                    
+                end
+            
+            elseif (((x(i) >= 40*boxWidthScaleFactor) && (x(i) <= 60*boxWidthScaleFactor)) && ((y(i) <= 40*boxLengthScaleFactor)))
+                
+                if (x_previous(i) <= 40*boxWidthScaleFactor) && (y_previous(i) <= 40*boxLengthScaleFactor)
+                    
+                    if (DiffuseCollisions)
+                        [vx(i), vy(i)] = thermalize(1);
+                    else
+                        vx(i) = -vx(i);
+                    end
+                    
+                    x(i) = 40*boxWidthScaleFactor;
+                                       
+                elseif (x_previous(i) >= 60*boxWidthScaleFactor) && (y_previous(i) <= 40*boxLengthScaleFactor)
+                    
+                    if (DiffuseCollisions)
+                        [vx(i), vy(i)] = thermalize(1);
+                    else
+                        vx(i) = -vx(i);
+                    end
+                    
+                    x(i) = 60*boxWidthScaleFactor;
+                                
+                elseif (x_previous(i) > 40*boxWidthScaleFactor) && (x_previous(i) < 60*boxWidthScaleFactor) && (y_previous(i) <= 40*boxLengthScaleFactor)
+                    
+                    if (DiffuseCollisions)
+                        [vx(i), vy(i)] = thermalize(1);
+                    else
+                        vy(i) = -vy(i);
+                    end
+                    
+                    y(i) = 40*boxLengthScaleFactor;
+                    
+                elseif (x_previous(i) > 40*boxWidthScaleFactor) && (x_previous(i) < 60*boxWidthScaleFactor) && (y_previous(i) > 40*boxLengthScaleFactor)
+                    
+                    if (DiffuseCollisions)
+                        [vx(i), vy(i)] = thermalize(1);
+                    else
+                        vy(i) = -vy(i);
+                    end
+                    
+                    y(i) = 40*boxLengthScaleFactor;
+                    
+                end
+                
+            end
+             
+        end  
+    end
+    
+% -------- Random electron scattering -------- %. 
+   
+    % If any electrons
+    % scatter, re-thermalize them (sample new speeds from maxwell boltzmann distribution)   
+    
+    if (ParticleScattering)
+        
+        scatteringProbabilites = rand(1, numElectrons);
+        electronsToScatter = find(scatteringProbabilites <= Pscat);
+        [vx(electronsToScatter), vy(electronsToScatter)] = thermalize(length(electronsToScatter));    
+        
+    end
+
+% -------- calculate average electron velocities -------- %
+    
+    avgVelocity(t) = sum(sqrt((vx.^2)+(vy.^2)))/numElectrons; %average of maxwell boltzmann distribution%
+    avgVelocityX(t) = (sum(vx))/numElectrons;
+    
+% -------- live plot of electrons moving around -------- %
+    
+    plot(x, y, 'b.');
+    if (BottleNeck)
+        hold on;
+        plot([40*boxWidthScaleFactor 40*boxWidthScaleFactor], [60*boxLengthScaleFactor 100*boxLengthScaleFactor], 'k');
+        hold on;
+        plot([60*boxWidthScaleFactor 60*boxWidthScaleFactor], [60*boxLengthScaleFactor 100*boxLengthScaleFactor], 'k');
+        hold on;
+        plot([40*boxWidthScaleFactor 40*boxWidthScaleFactor], [0*boxLengthScaleFactor 40*boxLengthScaleFactor], 'k');
+        hold on;
+        plot([60*boxWidthScaleFactor 60*boxWidthScaleFactor], [0*boxLengthScaleFactor 40*boxLengthScaleFactor], 'k');
+        hold on;
+        plot([40*boxWidthScaleFactor 60*boxWidthScaleFactor], [60*boxLengthScaleFactor 60*boxLengthScaleFactor], 'k');
+        hold on;
+        plot([40*boxWidthScaleFactor 60*boxWidthScaleFactor], [40*boxLengthScaleFactor 40*boxLengthScaleFactor], 'k');
+        hold off;
+    end
+    axis([0 100*boxWidthScaleFactor 0 100*boxLengthScaleFactor]);
+    pause(0.0001);
+    
+end
+
+% ------- Trajectory of select electrons over entire simulation duration ------- %
+
+figure;
+title('Particle Trajectories for 15 Randomly Selected Electrons');
+for pltCnt = 1:numElectronsToTrack
+    
+   x_diffs = diff(x_oldvals(:,pltCnt));
+   x_diffs(length(x_diffs) + 1) = 0;
+   
+   rejections = find(abs(x_diffs) >= 100e-9);
+   x_oldvals(rejections,pltCnt) = NaN;
+    
+   plot(x_oldvals(:,pltCnt), y_oldvals(:,pltCnt));
+   hold on;
+end
+if (BottleNeck)
+    plot([40*boxWidthScaleFactor 40*boxWidthScaleFactor], [60*boxLengthScaleFactor 100*boxLengthScaleFactor], 'k');
+    hold on;
+    plot([60*boxWidthScaleFactor 60*boxWidthScaleFactor], [60*boxLengthScaleFactor 100*boxLengthScaleFactor], 'k');
+    hold on;
+    plot([40*boxWidthScaleFactor 40*boxWidthScaleFactor], [0*boxLengthScaleFactor 40*boxLengthScaleFactor], 'k');
+    hold on;
+    plot([60*boxWidthScaleFactor 60*boxWidthScaleFactor], [0*boxLengthScaleFactor 40*boxLengthScaleFactor], 'k');
+    hold on;
+    plot([40*boxWidthScaleFactor 60*boxWidthScaleFactor], [60*boxLengthScaleFactor 60*boxLengthScaleFactor], 'k');
+    hold on;
+    plot([40*boxWidthScaleFactor 60*boxWidthScaleFactor], [40*boxLengthScaleFactor 40*boxLengthScaleFactor], 'k');
+end
+xlabel('Horizontal Location (m)');
+ylabel('Vertical Location (m)');
+axis([0 100*boxWidthScaleFactor 0 100*boxLengthScaleFactor]);
+hold off;
+
+
+% -------- Electron density map -------- %
+finalPos = [transpose(x) transpose(y)];
+
+figure;
+hist3(finalPos, [100 100]);
+title('Electron Density Map at End of Simulation (Created Using 3D Histogram of Final Positions)');
+xlabel('x-Direction Bins (Bin Size = 2 nm)');
+ylabel('y-Direction Bins (Bin Size = 1 nm)');
+xlabel('E')
+
+
+% -------- Electron temperature map -------- %
+finalTemps = ((vx.^2) + (vy.^2)).*((C.m)./(pi.*(C.k_b)));
+xVals = linspace(0, 100*boxWidthScaleFactor, 200);
+yVals = linspace(0, 100*boxLengthScaleFactor, 100);
+
+[XVals, YVals] = meshgrid(xVals, yVals);
+tempMap = griddata(x, y, finalTemps, XVals, YVals);
+
+figure;
+surf(XVals, YVals, tempMap);
+title('Temperature Map of Electrons at End of Simulation');
+xlabel('');
+
+
+% ------- Temperature plot over time ------- %
+
+% T = ((avgVelocity.^2).*(C.m))./(pi.*(C.k_b)); 
+% 
+% figure;
+% plot(t_vec, T, 'r');
+% title("Semiconductor Temperature Vs Time");
+% xlabel("Time (s)");
+% ylabel("Temperature (K)")
+% grid on;
+
